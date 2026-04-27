@@ -61,6 +61,15 @@ pub struct InputMapper {
     tapping: Option<KeyCode>,
 
     output_keys: HashSet<KeyCode>,
+
+    /// Non-modifier input keys that are currently consumed by an active
+    /// chord (Remap) mapping. When a chord partially breaks (e.g. the
+    /// modifier is released while the non-modifier is still held) these
+    /// keys are suppressed so they don't leak through as bare keypresses.
+    /// Modifier keys are intentionally excluded so they remain available
+    /// to participate in other chords (e.g. alt+q and alt+w can be
+    /// triggered in sequence while alt is held).
+    chord_keys: HashSet<KeyCode>,
 }
 
 fn enable_key_code(input: &mut Device, key: KeyCode) -> Result<()> {
@@ -112,6 +121,7 @@ impl InputMapper {
             output_keys: HashSet::new(),
             tapping: None,
             mappings,
+            chord_keys: HashSet::new(),
         })
     }
 
@@ -190,6 +200,21 @@ impl InputMapper {
                         // inputs for later remap rules
                         if !is_modifier(o) {
                             keys_minus_remapped.remove(o);
+                        }
+                    }
+                } else {
+                    // Chord is broken (e.g. modifier released while non-modifier
+                    // still held, or vice-versa). Suppress any non-modifier keys
+                    // that were part of this chord so they don't leak through.
+                    //
+                    // Modifier keys are intentionally left alone: a shared
+                    // modifier like alt must remain available so that other
+                    // chords (alt+w, alt+q, …) continue to work while alt
+                    // is held.
+                    for i in input {
+                        if !is_modifier(i) && self.chord_keys.contains(i) {
+                            keys.remove(i);
+                            keys_minus_remapped.remove(i);
                         }
                     }
                 }
@@ -305,6 +330,13 @@ impl InputMapper {
                     Some(p) => p,
                 };
 
+                // Remove from chord tracking on release.
+                // Only non-modifiers are ever added to chord_keys, but the
+                // guard here is harmless and makes the invariant explicit.
+                if !is_modifier(&code) {
+                    self.chord_keys.remove(&code);
+                }
+
                 self.compute_and_apply_keys(&event.time)?;
 
                 if let Some(Mapping::DualRole { tap, .. }) =
@@ -325,6 +357,18 @@ impl InputMapper {
                 self.input_state.insert(code.clone(), event.time.clone());
 
                 match self.lookup_mapping(code.clone()) {
+                    Some(Mapping::Remap { ref input, .. }) => {
+                        // Register non-modifier input keys as active chord members.
+                        // Modifiers are excluded so they stay available for other
+                        // chords while held (alt+q then alt+w etc.).
+                        for i in input {
+                            if !is_modifier(i) {
+                                self.chord_keys.insert(i.clone());
+                            }
+                        }
+                        self.compute_and_apply_keys(&event.time)?;
+                        self.tapping.replace(code);
+                    }
                     Some(_) => {
                         self.compute_and_apply_keys(&event.time)?;
                         self.tapping.replace(code);
@@ -341,9 +385,21 @@ impl InputMapper {
                     Some(Mapping::DualRole { hold, .. }) => {
                         self.emit_keys(&hold, &event.time, KeyEventType::Repeat)?;
                     }
-                    Some(Mapping::Remap { output, .. }) => {
-                        let output: Vec<KeyCode> = output.iter().cloned().collect();
-                        self.emit_keys(&output, &event.time, KeyEventType::Repeat)?;
+                    Some(Mapping::Remap { input, .. }) => {
+                        // Check whether the full chord is still satisfied.
+                        let input_set: HashSet<KeyCode> = input.iter().cloned().collect();
+                        let currently_held: HashSet<KeyCode> =
+                            self.input_state.keys().cloned().collect();
+                        if input_set.is_subset(&currently_held) {
+                            // Full chord held — suppress repeat entirely.
+                            // We don't want qqqqq (raw input leaking) or
+                            // 111111 (mapped output repeating); the user
+                            // asked for silence while the chord is held.
+                        } else {
+                            // Chord not fully satisfied — pass the raw key
+                            // repeat through unchanged.
+                            self.write_event_and_sync(event)?;
+                        }
                     }
                     None => {
                         // Just pass it through
@@ -432,8 +488,6 @@ fn is_modifier(key: &KeyCode) -> bool {
 }
 
 /// Orders modifier keys ahead of non-modifier keys.
-/// Unfortunately the underlying type doesn't allow direct
-/// comparison, but that's ok for our purposes.
 fn modifiers_first(a: &KeyCode, b: &KeyCode) -> Ordering {
     if is_modifier(a) {
         if is_modifier(b) {
@@ -444,7 +498,6 @@ fn modifiers_first(a: &KeyCode, b: &KeyCode) -> Ordering {
     } else if is_modifier(b) {
         Ordering::Greater
     } else {
-        // Neither are modifiers
         Ordering::Equal
     }
 }
