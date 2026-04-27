@@ -138,8 +138,26 @@ impl InputMapper {
 
     /// Compute the effective set of keys that are pressed
     fn compute_keys(&self) -> HashSet<KeyCode> {
-        // Start with the input keys
-        let mut keys: HashSet<KeyCode> = self.input_state.keys().cloned().collect();
+        // Remove keys pressed before modifier
+        let oldest_modifier_pressed_time = self.input_state
+            .iter()
+            .filter(|(k, _)| is_modifier(k))
+            .min_by_key(|(_, t)| *t)
+            .map(|(_, t)| *t);
+
+        let mut keys: HashSet<KeyCode> = self.input_state
+            .iter()
+            .filter(|(k, t)| {
+                is_modifier(k) ||
+                    oldest_modifier_pressed_time
+                    .as_ref()
+                    .map(|cutoff| *t > cutoff)
+                    .unwrap_or(true)
+            })
+        .map(|(k, _)| (*k).clone())
+        .collect();
+
+
 
         // First phase is to apply any DualRole mappings as they are likely to
         // be used to produce modifiers when held.
