@@ -26,6 +26,9 @@ impl MappingConfig {
         for remap in config_file.remap {
             mappings.push(remap.into());
         }
+        for modifier_key in config_file.modifier_keys {
+            mappings.push(modifier_key.into());
+        }
         Ok(Self {
             device_name: config_file.device_name,
             phys: config_file.phys,
@@ -45,6 +48,9 @@ pub enum Mapping {
         input: HashSet<KeyCode>,
         output: HashSet<KeyCode>,
     },
+    ModifierKey {
+        keys: HashSet<KeyCode>,
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -113,6 +119,19 @@ impl Into<Mapping> for RemapConfig {
 }
 
 #[derive(Debug, Deserialize)]
+struct ModifierKeyConfig {
+    keys: Vec<KeyCodeWrapper>,
+} 
+
+impl Into<Mapping> for ModifierKeyConfig {
+    fn into(self) -> Mapping {
+        Mapping::ModifierKey { 
+            keys: self.keys.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
 struct ConfigFile {
     #[serde(default)]
     device_name: Option<String>,
@@ -125,4 +144,34 @@ struct ConfigFile {
 
     #[serde(default)]
     remap: Vec<RemapConfig>,
+
+    #[serde(default)]
+    modifier_keys: Vec<ModifierKeyConfig>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn modifier_keys_initialization() {
+        let toml_data = "[[modifier_keys]]
+            keys = [\"KEY_FN\", \"KEY_LEFTCTRL\"]";
+        let config_file: ConfigFile =
+            toml::from_str(&toml_data).unwrap();
+        let mut mappings: Vec<Mapping> = vec![];
+        for dual in config_file.dual_role {
+            mappings.push(dual.into());
+        }
+        for remap in config_file.remap {
+            mappings.push(remap.into());
+        }
+        for modifier_key in config_file.modifier_keys {
+            mappings.push(modifier_key.into());
+        }
+
+        assert!(mappings.contains(&Mapping::ModifierKey { 
+            keys: HashSet::from([KeyCode::KEY_FN, KeyCode::KEY_LEFTCTRL]) 
+        }));
+    }
 }

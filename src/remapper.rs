@@ -70,6 +70,8 @@ pub struct InputMapper {
     /// to participate in other chords (e.g. alt+q and alt+w can be
     /// triggered in sequence while alt is held).
     chord_keys: HashSet<KeyCode>,
+
+    modifier_keys: HashSet<KeyCode>,
 }
 
 fn enable_key_code(input: &mut Device, key: KeyCode) -> Result<()> {
@@ -85,6 +87,7 @@ impl InputMapper {
         let f = std::fs::File::open(path).context(format!("opening {}", path.display()))?;
         let mut input = Device::new_from_file(f)
             .with_context(|| format!("failed to create new Device from file {}", path.display()))?;
+        let mut modifier_keys = HashSet::new();
 
         input.set_name(&format!("evremap Virtual input for {}", path.display()));
 
@@ -104,6 +107,7 @@ impl InputMapper {
                         enable_key_code(&mut input, o.clone())?;
                     }
                 }
+                Mapping::ModifierKey { keys } => modifier_keys.extend(keys)
             }
         }
 
@@ -122,6 +126,7 @@ impl InputMapper {
             tapping: None,
             mappings,
             chord_keys: HashSet::new(),
+            modifier_keys: modifier_keys,
         })
     }
 
@@ -151,14 +156,14 @@ impl InputMapper {
         // Remove keys pressed before modifier
         let oldest_modifier_pressed_time = self.input_state
             .iter()
-            .filter(|(k, _)| is_modifier(k))
+            .filter(|(k, _)| is_modifier(k, &self.modifier_keys))
             .min_by_key(|(_, t)| *t)
             .map(|(_, t)| *t);
 
         let mut keys: HashSet<KeyCode> = self.input_state
             .iter()
             .filter(|(k, t)| {
-                is_modifier(k) ||
+                is_modifier(k, &self.modifier_keys) ||
                     oldest_modifier_pressed_time
                     .as_ref()
                     .map(|cutoff| *t > cutoff)
@@ -190,7 +195,7 @@ impl InputMapper {
                 if input.is_subset(&keys_minus_remapped) {
                     for i in input {
                         keys.remove(i);
-                        if !is_modifier(i) {
+                        if !is_modifier(i, &self.modifier_keys) {
                             keys_minus_remapped.remove(i);
                         }
                     }
@@ -198,7 +203,7 @@ impl InputMapper {
                         keys.insert(o.clone());
                         // Outputs that apply are not visible as
                         // inputs for later remap rules
-                        if !is_modifier(o) {
+                        if !is_modifier(o, &self.modifier_keys) {
                             keys_minus_remapped.remove(o);
                         }
                     }
@@ -212,7 +217,7 @@ impl InputMapper {
                     // chords (alt+w, alt+q, …) continue to work while alt
                     // is held.
                     for i in input {
-                        if !is_modifier(i) && self.chord_keys.contains(i) {
+                        if !is_modifier(i, &self.modifier_keys) && self.chord_keys.contains(i) {
                             keys.remove(i);
                             keys_minus_remapped.remove(i);
                         }
@@ -250,11 +255,11 @@ impl InputMapper {
             .collect();
 
         if !to_release.is_empty() {
-            to_release.sort_by(modifiers_last);
+            to_release.sort_by(|a, b| modifiers_last(a, b, &self.modifier_keys));
             self.emit_keys(&to_release, time, KeyEventType::Release)?;
         }
         if !to_press.is_empty() {
-            to_press.sort_by(modifiers_first);
+            to_press.sort_by(|a, b| modifiers_first(a, b, &self.modifier_keys));
             self.emit_keys(&to_press, time, KeyEventType::Press)?;
         }
         Ok(())
@@ -303,6 +308,7 @@ impl InputMapper {
                         candidates.push(map);
                     }
                 }
+                Mapping::ModifierKey { .. } => ()
             }
         }
 
@@ -333,7 +339,7 @@ impl InputMapper {
                 // Remove from chord tracking on release.
                 // Only non-modifiers are ever added to chord_keys, but the
                 // guard here is harmless and makes the invariant explicit.
-                if !is_modifier(&code) {
+                if !is_modifier(&code, &self.modifier_keys) {
                     self.chord_keys.remove(&code);
                 }
 
@@ -362,7 +368,7 @@ impl InputMapper {
                         // Modifiers are excluded so they stay available for other
                         // chords while held (alt+q then alt+w etc.).
                         for i in input {
-                            if !is_modifier(i) {
+                            if !is_modifier(i, &self.modifier_keys) {
                                 self.chord_keys.insert(i.clone());
                             }
                         }
@@ -401,6 +407,7 @@ impl InputMapper {
                             self.write_event_and_sync(event)?;
                         }
                     }
+                    Some(_) => (),
                     None => {
                         // Just pass it through
                         self.cancel_pending_tap();
@@ -472,36 +479,37 @@ fn make_event(key: KeyCode, time: &TimeVal, event_type: KeyEventType) -> InputEv
     InputEvent::new(time, &EventCode::EV_KEY(key), event_type.value())
 }
 
-fn is_modifier(key: &KeyCode) -> bool {
-    match key {
-        KeyCode::KEY_FN
-        | KeyCode::KEY_LEFTALT
-        | KeyCode::KEY_RIGHTALT
-        | KeyCode::KEY_LEFTMETA
-        | KeyCode::KEY_RIGHTMETA
-        | KeyCode::KEY_LEFTCTRL
-        | KeyCode::KEY_RIGHTCTRL
-        | KeyCode::KEY_LEFTSHIFT
-        | KeyCode::KEY_RIGHTSHIFT => true,
-        _ => false,
-    }
+fn is_modifier(key: &KeyCode, modifier_keys: &HashSet<KeyCode>) -> bool {
+    modifier_keys.contains(key)
+    // match key {
+    //     KeyCode::KEY_FN
+    //     | KeyCode::KEY_LEFTALT
+    //     | KeyCode::KEY_RIGHTALT
+    //     | KeyCode::KEY_LEFTMETA
+    //     | KeyCode::KEY_RIGHTMETA
+    //     | KeyCode::KEY_LEFTCTRL
+    //     | KeyCode::KEY_RIGHTCTRL
+    //     | KeyCode::KEY_LEFTSHIFT
+    //     | KeyCode::KEY_RIGHTSHIFT => true,
+    //     _ => false,
+    // }
 }
 
 /// Orders modifier keys ahead of non-modifier keys.
-fn modifiers_first(a: &KeyCode, b: &KeyCode) -> Ordering {
-    if is_modifier(a) {
-        if is_modifier(b) {
+fn modifiers_first(a: &KeyCode, b: &KeyCode, modifier_keys: &HashSet<KeyCode>) -> Ordering {
+    if is_modifier(a, modifier_keys) {
+        if is_modifier(b, modifier_keys) {
             Ordering::Equal
         } else {
             Ordering::Less
         }
-    } else if is_modifier(b) {
+    } else if is_modifier(b, modifier_keys) {
         Ordering::Greater
     } else {
         Ordering::Equal
     }
 }
 
-fn modifiers_last(a: &KeyCode, b: &KeyCode) -> Ordering {
-    modifiers_first(a, b).reverse()
+fn modifiers_last(a: &KeyCode, b: &KeyCode, modifier_keys: &HashSet<KeyCode>) -> Ordering {
+    modifiers_first(a, b, modifier_keys).reverse()
 }
