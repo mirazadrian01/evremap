@@ -66,6 +66,12 @@ input = ["KEY_LEFTALT", "KEY_RIGHT"]
 output = ["KEY_END"]
 ```
 
+You can set the keys that will be considered modifiers
+```toml
+[[modifier_keys]]
+keys = ["KEY_FN", "KEY_LEFTALT", "KEY_RIGHTALT", "KEY_LEFTMETA", "KEY_RIGHTMETA", "KEY_LEFTCTRL", "KEY_RIGHTCTRL", "KEY_LEFTSHIFT", "KEY_RIGHTSHIFT", "KEY_CAPSLOCK"]]
+```
+
 When applying remapping configuration, ordering is important:
 
 * Dual Role entries are always processed first
