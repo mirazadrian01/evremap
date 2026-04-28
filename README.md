@@ -66,7 +66,15 @@ input = ["KEY_LEFTALT", "KEY_RIGHT"]
 output = ["KEY_END"]
 ```
 
-You can set the keys that will be considered modifiers
+You can configure which keys are treated as modifiers.
+
+Modifier status is applied before any key remapping.
+This means a key will behave as a modifier even if it is 
+later remapped to another key.
+
+For example, if you remap CAPSLOCK to LEFTCTRL, you should include 
+CAPSLOCK in the modifier keys so it is recognized as a 
+modifier during processing.
 ```toml
 [[modifier_keys]]
 keys = [
