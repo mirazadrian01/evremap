@@ -3,6 +3,7 @@ use crate::mapping::*;
 use crate::remapper::*;
 use anyhow::{Context, Result};
 use clap::Parser;
+use evdevil::event::Key;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -66,14 +67,13 @@ enum Opt {
 }
 
 pub fn list_keys() -> Result<()> {
-    let mut keys: Vec<String> = EventCode::EV_KEY(KeyCode::KEY_RESERVED)
-        .iter()
-        .filter_map(|code| match code {
-            EventCode::EV_KEY(_) => Some(format!("{}", code)),
-            _ => None,
-        })
+    let mut keys: Vec<String> = (0..=0x2e7)
+        .map(|code| Key::from_raw(code))
+        .map(|key| format!("{:?}", key))
         .collect();
+
     keys.sort();
+
     for key in keys {
         println!("{}", key);
     }
@@ -121,27 +121,17 @@ fn get_device(
 }
 
 fn debug_events(device: DeviceInfo) -> Result<()> {
-    let f =
-        std::fs::File::open(&device.path).context(format!("opening {}", device.path.display()))?;
-    let input = evdev_rs::Device::new_from_file(f).with_context(|| {
-        format!(
-            "failed to create new Device from file {}",
-            device.path.display()
-        )
-    })?;
+    let input = evdevil::Evdev::open(&device.path)
+        .with_context(|| format!("failed to open evdev {}", device.path.display()))?;
 
-    loop {
-        let (status, event) =
-            input.next_event(evdev_rs::ReadFlag::NORMAL | evdev_rs::ReadFlag::BLOCKING)?;
-        match status {
-            evdev_rs::ReadStatus::Success => {
-                if let EventCode::EV_KEY(key) = event.event_code {
-                    log::info!("{key:?} {}", event.value);
-                }
-            }
-            evdev_rs::ReadStatus::Sync => anyhow::bail!("ReadStatus::Sync!"),
+    for event in input.raw_events() {
+        let event = event.context("reading next input event")?;
+        if let evdevil::event::EventKind::Key(key_event) = event.kind() {
+            log::info!("{:?} {}", key_event.key(), key_event.state().raw());
         }
     }
+
+    anyhow::bail!("input device closed the event stream (unplugged?)")
 }
 
 fn main() -> Result<()> {
@@ -189,7 +179,7 @@ fn main() -> Result<()> {
                 get_device(device_name, mapping_config.phys.as_deref(), wait_for_device)?;
 
             let mut mapper = InputMapper::create_mapper(device_info.path, mapping_config.mappings)?;
-            mapper.run_mapper()
+            mapper.run_mapper().map(|x| match x {})
         }
     }
 }

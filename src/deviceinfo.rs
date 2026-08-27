@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
-use evdev_rs::{Device, DeviceWrapper};
+use evdevil::Evdev;
+//use evdev_rs::{Device, DeviceWrapper};
 use std::cmp::Ordering;
 use std::path::PathBuf;
 
@@ -12,13 +13,12 @@ pub struct DeviceInfo {
 
 impl DeviceInfo {
     pub fn with_path(path: PathBuf) -> Result<Self> {
-        let f = std::fs::File::open(&path).context(format!("opening {}", path.display()))?;
-        let input = Device::new_from_file(f)
+        let input = Evdev::open(&path)
             .with_context(|| format!("failed to create new Device from file {}", path.display()))?;
 
         Ok(Self {
-            name: input.name().unwrap_or("").to_string(),
-            phys: input.phys().unwrap_or("").to_string(),
+            name: input.name().unwrap_or("".to_string()),
+            phys: input.phys().unwrap_or(None).unwrap_or("".to_string()),
             path,
         })
     }

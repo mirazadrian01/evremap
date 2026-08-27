@@ -1,8 +1,10 @@
 use anyhow::Context;
-pub use evdev_rs::enums::{EventCode, EventType, EV_KEY as KeyCode};
+use evdevil::event::Key;
+//pub use evdev_rs::enums::{EventCode, EventType, EV_KEY as KeyCode};
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::path::Path;
+use std::str::FromStr;
 use thiserror::Error;
 
 #[derive(Debug, Clone)]
@@ -40,27 +42,27 @@ impl MappingConfig {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Mapping {
     DualRole {
-        input: KeyCode,
-        hold: Vec<KeyCode>,
-        tap: Vec<KeyCode>,
+        input: Key,
+        hold: Vec<Key>,
+        tap: Vec<Key>,
     },
     Remap {
-        input: HashSet<KeyCode>,
-        output: HashSet<KeyCode>,
+        input: HashSet<Key>,
+        output: HashSet<Key>,
     },
     ModifierKey {
-        keys: HashSet<KeyCode>,
+        keys: HashSet<Key>,
     }
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(try_from = "String")]
 struct KeyCodeWrapper {
-    pub code: KeyCode,
+    pub code: Key,
 }
 
-impl Into<KeyCode> for KeyCodeWrapper {
-    fn into(self) -> KeyCode {
+impl Into<Key> for KeyCodeWrapper {
+    fn into(self) -> Key {
         self.code
     }
 }
@@ -76,13 +78,11 @@ pub enum ConfigError {
 impl std::convert::TryFrom<String> for KeyCodeWrapper {
     type Error = ConfigError;
     fn try_from(s: String) -> Result<KeyCodeWrapper, Self::Error> {
-        match EventCode::from_str(&EventType::EV_KEY, &s) {
-            Some(code) => match code {
-                EventCode::EV_KEY(code) => Ok(KeyCodeWrapper { code }),
-                _ => Err(ConfigError::ImpossibleParseKey),
-            },
-            None => Err(ConfigError::InvalidKey(s)),
-        }
+        let code = s
+            .parse::<Key>()
+            .map_err(|_| ConfigError::InvalidKey(s))?;
+
+        Ok(Self { code, })
     }
 }
 
@@ -171,7 +171,7 @@ mod tests {
         }
 
         assert!(mappings.contains(&Mapping::ModifierKey { 
-            keys: HashSet::from([KeyCode::KEY_FN, KeyCode::KEY_LEFTCTRL]) 
+            keys: HashSet::from([Key::KEY_FN, Key::KEY_LEFTCTRL]) 
         }));
     }
 }
