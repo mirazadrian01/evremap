@@ -1,7 +1,6 @@
 use crate::mapping::*;
 use anyhow::*;
 use evdevil::event::{EventKind, EventType, InputEvent, Key};
-// use evdev_rs::{Device, DeviceWrapper, GrabMode, InputEvent, ReadFlag, TimeVal, UInputDevice};
 use evdevil::{Evdev, EventReader, uinput::UinputDevice};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -87,10 +86,17 @@ pub struct InputMapper {
 impl InputMapper {
     pub fn create_mapper<P: AsRef<Path>>(path: P, mappings: Vec<Mapping>) -> Result<Self> {
         let path = path.as_ref();
-        let mut input = Evdev::open(path)
+        let input = Evdev::open(path)
             .with_context(|| format!("failed to create new Device from file {}", path.display()))?;
-        let mut modifier_keys = HashSet::new();
 
+        let modifier_keys: HashSet<Key> = mappings
+            .iter()
+            .filter_map(|m| match m {
+                Mapping::ModifierKey { keys } => Some(keys.iter().cloned()),
+                _ => None,
+            })
+            .flatten()
+            .collect();
 
         let keys = input.supported_keys()?;
 
@@ -456,21 +462,20 @@ impl InputMapper {
     fn write_event(&mut self, event: &InputEvent) -> Result<()> {
         log::trace!("OUT: {:?}", event);
         self.output.write_events(&[*event])?;
-        // if let EventCode::EV_KEY(ref key) = event.event_code {
-        //     let event_type = KeyEventType::from_value(event.value);
-        //     match event_type {
-        //         KeyEventType::Press | KeyEventType::Repeat => {
-        //             self.output_keys.insert(key.clone());
-        //         }
-        //         KeyEventType::Release => {
-        //             self.output_keys.remove(key);
-        //         }
-        //         _ => {}
-        //     }
-        // }
+
+        if let EventKind::Key(key_event) = event.kind() {
+            match KeyEventType::from_value(event.raw_value()) {
+                KeyEventType::Press | KeyEventType::Repeat => {
+                    self.output_keys.insert(key_event.key());
+                }
+                KeyEventType::Release => {
+                    self.output_keys.remove(&key_event.key());
+                }
+                KeyEventType::Unknown(_) => {}
+            }
+        }
         Ok(())
     }
-
     // fn generate_sync_event(&self, time: &SystemTime) -> Result<()> {
     //     self.output.write_event(&InputEvent::new(
     //         time,

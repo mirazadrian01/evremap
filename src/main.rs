@@ -121,10 +121,12 @@ fn get_device(
 }
 
 fn debug_events(device: DeviceInfo) -> Result<()> {
-    let input = evdevil::Evdev::open(&device.path)
-        .with_context(|| format!("failed to open evdev {}", device.path.display()))?;
+    let mut input = evdevil::Evdev::open(&device.path)
+        .with_context(|| format!("failed to open evdev {}", device.path.display()))?
+        .into_reader()
+        .with_context(|| format!("turned into reader"))?;
 
-    for event in input.raw_events() {
+    for event in input.events() {
         let event = event.context("reading next input event")?;
         if let evdevil::event::EventKind::Key(key_event) = event.kind() {
             log::info!("{:?} {}", key_event.key(), key_event.state().raw());

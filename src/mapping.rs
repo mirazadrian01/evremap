@@ -1,10 +1,8 @@
 use anyhow::Context;
 use evdevil::event::Key;
-//pub use evdev_rs::enums::{EventCode, EventType, EV_KEY as KeyCode};
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::path::Path;
-use std::str::FromStr;
 use thiserror::Error;
 
 #[derive(Debug, Clone)]
@@ -121,11 +119,11 @@ impl Into<Mapping> for RemapConfig {
 #[derive(Debug, Deserialize)]
 struct ModifierKeyConfig {
     keys: Vec<KeyCodeWrapper>,
-} 
+}
 
 impl Into<Mapping> for ModifierKeyConfig {
     fn into(self) -> Mapping {
-        Mapping::ModifierKey { 
+        Mapping::ModifierKey {
             keys: self.keys.into_iter().map(Into::into).collect(),
         }
     }

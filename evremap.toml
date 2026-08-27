@@ -1,4 +1,5 @@
 device_name = "AT Translated Set 2 keyboard"
+# device_name = "evremap Virtual input for /dev/input/event2"
 
 # Disable key ctrl to use it use hjkl as arrows
 #[[remap]]
