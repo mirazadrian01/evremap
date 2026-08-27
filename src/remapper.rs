@@ -98,10 +98,24 @@ impl InputMapper {
             .flatten()
             .collect();
 
-        let keys = input.supported_keys()?;
+        let mut output_keys: HashSet<Key> = input.supported_keys()?.into_iter().collect();
+        for m in &mappings {
+            match m {
+                Mapping::DualRole { hold, tap, ..} => {
+                    output_keys.extend(hold);
+                    output_keys.extend(tap);
+                },
+                Mapping::Remap { output, ..} => {
+                    output_keys.extend(output);
+                },
+                Mapping::ModifierKey { keys } => {
+                    output_keys.extend(keys);
+                }
+            }
+        }
 
         let output = UinputDevice::builder()?
-            .with_keys(keys)?
+            .with_keys(output_keys)?
             .build(&format!("evremap Virtual input for {}", path.display()))
             .context(format!("creating UinputDevice from {}", path.display()))?;
 
